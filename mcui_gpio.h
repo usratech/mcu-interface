@@ -22,42 +22,38 @@ extern "C" {
  *                                          Definitions
  *************************************************************************************************/
 
-typedef enum {
-    MCUI_PIN1 = 0,
-    MCUI_PIN2,
-    MCUI_PIN3,
-    MCUI_PIN4,
-    MCUI_PIN5,
-    MCUI_PIN6,
-    MCUI_PIN7,
-    MCUI_PIN8,
-    MCUI_PIN9,
-    MCUI_PIN10,
-    MCUI_PIN11,
-    MCUI_PIN12,
-    MCUI_PIN13,
-    MCUI_PIN14,
-    MCUI_PIN15,
-    MCUI_PIN16,
-    MCUI_PIN_MAX_COUNT = 0xffff,
-} mcui_pin_t;
+typedef uint16_t mcui_pin_t;
 
 enum __mcui_gpio_mode {
     MCUI_GPIO_MODE_INPUT = 0,
-    MCUI_GPIO_MODE_OUTPUT
+    MCUI_GPIO_MODE_OUTPUT,
+    /* at the end */
+    MCUI_GPIO_MODE_COUNT,
 };
 
 enum __mcui_gpio_pull {
     MCUI_GPIO_PULL_NO = 0,
     MCUI_GPIO_PULL_UP,
-    MCUI_GPIO_PULL_DOWN
+    MCUI_GPIO_PULL_DOWN,
+    /* at the end */
+    MCUI_GPIO_PULL_COUNT,
 };
 
 enum __mcui_gpio_int_mode {
     MCUI_GPIO_INT_MODE_NONE = 0,
     MCUI_GPIO_INT_MODE_LTOH,
     MCUI_GPIO_INT_MODE_HTOL,
-    MCUI_GPIO_INT_MODE_BOTH
+    MCUI_GPIO_INT_MODE_BOTH,
+    /* at the end */
+    MCUI_GPIO_INT_MODE_COUNT,
+};
+
+enum __mcui_gpio_sense {
+    MCUI_GPIO_SENSE_NONE = 0,
+    MCUI_GPIO_SENSE_LOW,
+    MCUI_GPIO_SENSE_HIGH,
+    /* at the end */
+    MCUI_GPIO_SENSE_COUNT,
 };
 
 typedef void (*mcui_gpio_int_callback_t)(uint16_t pin);
@@ -67,7 +63,7 @@ typedef struct {
     uint8_t mode;
     uint8_t int_mode;
     uint8_t pull;
-    bool sense; /* low power retention/detection */
+    uint8_t sense; /* wake up sensing */
 } mcui_gpio_cfg_t;
 
 

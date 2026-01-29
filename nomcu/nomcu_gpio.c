@@ -18,7 +18,7 @@
  *                                          Definitions
  *************************************************************************************************/
 
-#define NOMCU_PIN_NUMBER_MAX MCUI_PIN10
+#define NOMCU_PIN_NUMBER_MAX 16
 
 /**************************************************************************************************
  *                                          Static function prototypes
@@ -31,8 +31,8 @@ static void __nomcu_gpio_interrupt_handler(uint16_t pin);
  *                                          Variables
  *************************************************************************************************/
 
-static bool gpio_values[NOMCU_PIN_NUMBER_MAX+1];
-static mcui_gpio_cfg_t gpio_configs[NOMCU_PIN_NUMBER_MAX+1];
+static bool gpio_values[NOMCU_PIN_NUMBER_MAX];
+static mcui_gpio_cfg_t gpio_configs[NOMCU_PIN_NUMBER_MAX];
 
 /**************************************************************************************************
  *                                          Functions
@@ -40,7 +40,7 @@ static mcui_gpio_cfg_t gpio_configs[NOMCU_PIN_NUMBER_MAX+1];
 
 void mcui_gpio_configure(uint16_t pin, mcui_gpio_cfg_t *cfg)
 {
-    assert(pin <= NOMCU_PIN_NUMBER_MAX);
+    assert(pin < NOMCU_PIN_NUMBER_MAX);
     assert(cfg);
     assert(check_cfg(pin, cfg));
 
@@ -49,28 +49,28 @@ void mcui_gpio_configure(uint16_t pin, mcui_gpio_cfg_t *cfg)
 
 void mcui_gpio_disable(uint16_t pin)
 {
-    assert(pin <= NOMCU_PIN_NUMBER_MAX);
+    assert(pin < NOMCU_PIN_NUMBER_MAX);
 
     memset(&gpio_configs[pin], 0, sizeof(mcui_gpio_cfg_t));
 }
 
 bool mcui_gpio_get(uint16_t pin)
 {
-    assert(pin <= NOMCU_PIN_NUMBER_MAX);
+    assert(pin < NOMCU_PIN_NUMBER_MAX);
 
     return gpio_values[pin];
 }
 
 void mcui_gpio_set(uint16_t pin, bool value)
 {
-    assert(pin <= NOMCU_PIN_NUMBER_MAX);  
-    
+    assert(pin < NOMCU_PIN_NUMBER_MAX);
+
     gpio_values[pin] = value;
 }
 
 void __nomcu_gpio_input_toggle(uint16_t pin)
 {
-    assert(pin <= NOMCU_PIN_NUMBER_MAX);
+    assert(pin < NOMCU_PIN_NUMBER_MAX);
     assert(gpio_configs[pin].mode == MCUI_GPIO_MODE_INPUT);
 
     gpio_values[pin] = gpio_values[pin] ? false : true;
