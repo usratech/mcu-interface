@@ -21,7 +21,7 @@
 #define NOMCU_PIN_NUMBER_MAX 16
 
 /**************************************************************************************************
- *                                          Static function prototypes
+ *                                 Static function prototypes
  *************************************************************************************************/
 
 static bool check_cfg(uint16_t pin, mcui_gpio_cfg_t *cfg);
