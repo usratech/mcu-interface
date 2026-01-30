@@ -16,9 +16,13 @@
 
 #include "mcui_gpio.h"
 
-/* Maximum valid pin for nomcu implementation */
-#define TEST_VALID_PIN      MCUI_PIN1
-#define TEST_INVALID_PIN    (MCUI_PIN10 + 1)
+/* Maximum valid pin for nomcu implementation (matches NOMCU_PIN_NUMBER_MAX = 16) */
+#define TEST_PIN_0           0
+#define TEST_PIN_1           1
+#define TEST_PIN_2           2
+#define TEST_PIN_3           3
+#define TEST_MAX_VALID_PIN   15          /* Last valid pin (0-15) */
+#define TEST_INVALID_PIN     16          /* First invalid pin */
 
 /**************************************************************************************************
  *                                          mcui_gpio_configure tests
@@ -45,7 +49,7 @@ static void test_mcui_gpio_configure_null_cfg(void **state)
     (void)state;
     
     /* Test that NULL cfg triggers assertion */
-    expect_assert_failure(mcui_gpio_configure(TEST_VALID_PIN, NULL));
+    expect_assert_failure(mcui_gpio_configure(TEST_PIN_0, NULL));
 }
 
 static void test_mcui_gpio_configure_ok(void **state)
@@ -61,7 +65,7 @@ static void test_mcui_gpio_configure_ok(void **state)
         .sense = false
     };
     
-    mcui_gpio_configure(MCUI_PIN1, &input_cfg);
+    mcui_gpio_configure(TEST_PIN_1, &input_cfg);
     
     /* Test output mode configuration */
     mcui_gpio_cfg_t output_cfg = {
@@ -72,14 +76,14 @@ static void test_mcui_gpio_configure_ok(void **state)
         .sense = false
     };
     
-    mcui_gpio_configure(MCUI_PIN2, &output_cfg);
+    mcui_gpio_configure(TEST_PIN_2, &output_cfg);
     
     /* Test output and verify set/get */
-    mcui_gpio_set(MCUI_PIN2, true);
-    assert_true(mcui_gpio_get(MCUI_PIN2));
+    mcui_gpio_set(TEST_PIN_2, true);
+    assert_true(mcui_gpio_get(TEST_PIN_2));
     
-    mcui_gpio_set(MCUI_PIN2, false);
-    assert_false(mcui_gpio_get(MCUI_PIN2));
+    mcui_gpio_set(TEST_PIN_2, false);
+    assert_false(mcui_gpio_get(TEST_PIN_2));
     
     /* Test with pull-down */
     mcui_gpio_cfg_t pulldown_cfg = {
@@ -90,10 +94,10 @@ static void test_mcui_gpio_configure_ok(void **state)
         .sense = false
     };
     
-    mcui_gpio_configure(MCUI_PIN3, &pulldown_cfg);
+    mcui_gpio_configure(TEST_PIN_3, &pulldown_cfg);
     
     /* Test disable */
-    mcui_gpio_disable(MCUI_PIN3);
+    mcui_gpio_disable(TEST_PIN_3);
     
     assert_true(1);
 }

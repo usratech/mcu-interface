@@ -56,6 +56,19 @@ enum __mcui_gpio_sense {
     MCUI_GPIO_SENSE_COUNT,
 };
 
+enum __mcui_gpio_drive {
+    MCUI_GPIO_DRIVE_S0S1 = 0,
+    MCUI_GPIO_DRIVE_H0S1,
+    MCUI_GPIO_DRIVE_S0H1,
+    MCUI_GPIO_DRIVE_H0H1,
+    MCUI_GPIO_DRIVE_D0S1,
+    MCUI_GPIO_DRIVE_D0H1,
+    MCUI_GPIO_DRIVE_S0D1,
+    MCUI_GPIO_DRIVE_H0D1,
+    /* at the end */
+    MCUI_GPIO_DRIVE_COUNT,
+};
+
 typedef void (*mcui_gpio_int_callback_t)(uint16_t pin);
 
 typedef struct {
@@ -64,6 +77,7 @@ typedef struct {
     uint8_t int_mode;
     uint8_t pull;
     uint8_t sense; /* wake up sensing */
+    uint8_t drive;
 } mcui_gpio_cfg_t;
 
 
