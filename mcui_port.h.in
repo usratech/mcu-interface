@@ -23,10 +23,11 @@
  * 
  */
 
-#pragma once 
+#pragma once
 
 #include <stdint.h>
-#include <stdbool.h>
+
+#include "${MCUI_MUTEX_FUNC_HEADER}"
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,48 +37,39 @@ extern "C" {
  *                                          Definitions
  *************************************************************************************************/
 
-enum __mcui_pwm_instance {
-    MCUI_PWM0 = 0,
-    MCUI_PWM1,
-    MCUI_PWM2,
-    MCUI_PWM3,
-    /* at the end */
-    MCUI_PWM_COUNT
-};
+#define MCUI_MUTEX_ACQUIRED_RET_CODE ${EXT_MUTEX_ACQUIRED_RET_CODE_VALUE}
 
-typedef struct {
-    uint32_t frequency_hz;
-    uint16_t *pins;
-    uint16_t *duty_cycles;
-    uint8_t channels;
-    bool pins_off_state;
-    bool active_high;
-} mcui_pwm_cfg_t;
+typedef void *mcui_mutex_t;
 
-/**************************************************************************************************
- *                                          Functions
- *************************************************************************************************/
+#define MCUI_MUTEX_CREATE       ${EXT_MUTEX_CREATE_FUNC}
+#define MCUI_MUTEX_ACQUIRE      ${EXT_MUTEX_ACQUIRE_FUNC}
+#define MCUI_MUTEX_ACQUIRE_WAIT ${EXT_MUTEX_ACQUIRE_WAIT}
+#define MCUI_MUTEX_RELEASE      ${EXT_MUTEX_RELEASE_FUNC}
 
 /**
- * @brief Start PWM playback on selected channels 
  * 
- * The instance is initialized if there is no currently active channels 
+ * @brief Mutex usage example below
  * 
- * @param pwm instance
- * @param cfg configuration
+ * mcui_mutex_t mutex = MCUI_MUTEX_CREATE();
+ * 
+ * if (mutex == NULL) {
+ *     return NO_MEM;
+ * }
+ * 
+ * if (MCU_MUTEX_ACQUIRED_RET_CODE != MCUI_MUTEX_ACQUIRE(mutex)) {
+ *     return BUSY;
+ * }
+ * 
+ * or
+ * 
+ * if (MCU_MUTEX_ACQUIRED_RET_CODE != MCUI_MUTEX_ACQUIRE_WAIT(mutex, 100)) {
+ *     return BUSY;
+ * }
+ * 
+ * do something with the resource now 
+ * 
+ * MCU_MUTEX_RELEASE(mutex);
  */
-void mcui_pwm_start(uint8_t pwm, const mcui_pwm_cfg_t* cfg);
-
-/**
- * @brief Stop PWM on selected channels 
- * 
- * When all channels are stopped the instanse is uninitialized
- * 
- * @param pwm instance 
- * @param pins arrays of pins 
- * @param pin_count number of pins 
- */
-void mcui_pwm_stop(uint8_t pwm, const uint16_t* pins, uint8_t pin_count);
 
 #ifdef __cplusplus
 }

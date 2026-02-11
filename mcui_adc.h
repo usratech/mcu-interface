@@ -64,9 +64,23 @@ enum __mcui_adc_resolution {
     MCUI_ADC_RESOLUTION_8BIT = 0,
     MCUI_ADC_RESOLUTION_10BIT,
     MCUI_ADC_RESOLUTION_12BIT,
+    MCUI_ADC_RESOLUTION_14BIT,
     MCUI_ADC_RESOLUTION_16BIT,
     /* at the end */
     MCUI_ADC_RESOLUTION_COUNT
+};
+
+enum __mcui_adc_gain_factor {
+    MCUI_ADC_GAIN_1_6,
+    MCUI_ADC_GAIN_1_5,
+    MCUI_ADC_GAIN_1_4,
+    MCUI_ADC_GAIN_1_3,
+    MCUI_ADC_GAIN_1_2,
+    MCUI_ADC_GAIN_1,
+    MCUI_ADC_GAIN_2,
+    MCUI_ADC_GAIN_4,
+    /* at the end */
+    MCUI_ADC_GAIN_COUNT,
 };
 
 typedef void (*mcui_adc_callback_t)(void *buffer, size_t size);
