@@ -39,10 +39,11 @@
 #define NRF52_SAADC_CHANNELS 8
 
 /**************************************************************************************************
- *                                          Prototypes
+ *                                  Static function prototypes
  *************************************************************************************************/
 
 static bool check_cfg(mcui_adc_cfg_t *cfg);
+static void saadc_event_handler(nrfx_saadc_evt_t const *p_event);
 
 /**************************************************************************************************
  *                                          Variables 
@@ -69,6 +70,13 @@ static const int bits_to_internal_bits[MCUI_ADC_RESOLUTION_COUNT] = {
     [MCUI_ADC_RESOLUTION_14BIT] = NRF_SAADC_RESOLUTION_14BIT,
 };
 
+static mcui_mutex_t s_saadc_mutex;
+
+static mcui_adc_callback_t s_buffer_callback;
+static void *s_buffer_ptr;
+static size_t s_buffer_size;
+static uint8_t s_buffer_num_channels;
+
 /**************************************************************************************************
  *                                          Functions
  *************************************************************************************************/
@@ -79,6 +87,68 @@ int mcui_adc_sample_single(uint8_t adc, mcui_adc_cfg_t *cfg, int *out_value)
     assert(check_cfg(cfg));
     assert(out_value);
 
+    if (!s_saadc_mutex) {
+        s_saadc_mutex = MCUI_MUTEX_CREATE();
+        if (!s_saadc_mutex) {
+            return MCUI_ADC_ERROR_UNKNOWN;
+        }
+    }
+
+    if (MCUI_MUTEX_ACQUIRED_RET_CODE != MCUI_MUTEX_ACQUIRE(s_saadc_mutex)) {
+        return MCUI_ADC_ERROR_BUSY;
+    }
+
+    nrf_saadc_value_t sample;
+    nrfx_err_t err;
+
+    uint8_t pos_ch = PIN_TO_CHANNEL(cfg->positive_pin);
+
+    nrf_saadc_channel_config_t ch_cfg = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(
+        ch_to_internal_ch[pos_ch]);
+    ch_cfg.gain = gain_to_internal_gain[(uint8_t)cfg->gain];
+    ch_cfg.reference = NRF_SAADC_REFERENCE_INTERNAL;
+    ch_cfg.acq_time = NRF_SAADC_ACQTIME_10US;
+
+    if (cfg->mode == MCUI_ADC_MODE_DIFFERENTIAL) {
+        uint8_t neg_ch = PIN_TO_CHANNEL(cfg->negative_pin);
+        ch_cfg.pin_n = ch_to_internal_ch[neg_ch];
+        ch_cfg.mode = NRF_SAADC_MODE_DIFFERENTIAL;
+    }
+
+    err = nrfx_saadc_init(NULL, NULL);
+    if (err != NRFX_SUCCESS && err != NRFX_ERROR_INVALID_STATE) {
+        MCUI_MUTEX_RELEASE(s_saadc_mutex);
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    err = nrfx_saadc_channel_init(pos_ch, &ch_cfg);
+    if (err != NRFX_SUCCESS) {
+        nrfx_saadc_uninit();
+        MCUI_MUTEX_RELEASE(s_saadc_mutex);
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    nrfx_saadc_resolution_set(bits_to_internal_bits[cfg->resolution]);
+
+    if (cfg->oversample > 0) {
+        nrfx_saadc_oversample_set(cfg->oversample);
+    }
+
+    err = nrfx_saadc_sample_convert(pos_ch, &sample);
+    if (err != NRFX_SUCCESS) {
+        nrfx_saadc_channel_uninit(pos_ch);
+        nrfx_saadc_uninit();
+        MCUI_MUTEX_RELEASE(s_saadc_mutex);
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    *out_value = (int)sample;
+
+    nrfx_saadc_channel_uninit(pos_ch);
+    nrfx_saadc_uninit();
+    MCUI_MUTEX_RELEASE(s_saadc_mutex);
+
+    return MCUI_ADC_ERROR_NONE;
 }
 
 int mcui_adc_sample_buffer(uint8_t adc, mcui_adc_cfg_t *cfg, void *buffer, size_t size)
@@ -88,11 +158,109 @@ int mcui_adc_sample_buffer(uint8_t adc, mcui_adc_cfg_t *cfg, void *buffer, size_
     assert(buffer);
     assert(size);
 
+    if (!s_saadc_mutex) {
+        s_saadc_mutex = MCUI_MUTEX_CREATE();
+        if (!s_saadc_mutex) {
+            return MCUI_ADC_ERROR_UNKNOWN;
+        }
+    }
+
+    if (MCUI_MUTEX_ACQUIRED_RET_CODE != MCUI_MUTEX_ACQUIRE(s_saadc_mutex)) {
+        return MCUI_ADC_ERROR_BUSY;
+    }
+
+    nrfx_err_t err;
+
+    s_buffer_callback = cfg->callback;
+    s_buffer_ptr = buffer;
+    s_buffer_size = size;
+
+    nrfx_saadc_config_t saadc_cfg = NRFX_SAADC_DEFAULT_CONFIG;
+    saadc_cfg.resolution = bits_to_internal_bits[cfg->resolution];
+
+    if (cfg->oversample > 0) {
+        saadc_cfg.oversample = cfg->oversample;
+    }
+
+    err = nrfx_saadc_init(&saadc_cfg, saadc_event_handler);
+    if (err != NRFX_SUCCESS && err != NRFX_ERROR_INVALID_STATE) {
+        MCUI_MUTEX_RELEASE(s_saadc_mutex);
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    /* Configure scan channels */
+    uint8_t num_channels = cfg->channels_in_use;
+    if (num_channels > MCUI_ADC_SCAN_MAX_CHANNELS) {
+        num_channels = MCUI_ADC_SCAN_MAX_CHANNELS;
+    }
+
+    for (uint8_t i = 0; i < num_channels; i++) {
+        uint8_t ch = PIN_TO_CHANNEL(cfg->scan_pins[i]);
+
+        nrf_saadc_channel_config_t ch_cfg = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(
+            ch_to_internal_ch[ch]);
+        ch_cfg.gain = gain_to_internal_gain[(uint8_t)cfg->gain];
+        ch_cfg.reference = NRF_SAADC_REFERENCE_INTERNAL;
+        ch_cfg.acq_time = NRF_SAADC_ACQTIME_10US;
+
+        err = nrfx_saadc_channel_init(i, &ch_cfg);
+        if (err != NRFX_SUCCESS) {
+            /* Clean up previously initialized channels */
+            for (uint8_t j = 0; j < i; j++) {
+                nrfx_saadc_channel_uninit(j);
+            }
+            nrfx_saadc_uninit();
+            MCUI_MUTEX_RELEASE(s_saadc_mutex);
+            return MCUI_ADC_ERROR_SDK;
+        }
+    }
+
+    /* Store num_channels so the event handler can clean up */
+    s_buffer_num_channels = num_channels;
+
+    err = nrfx_saadc_buffer_convert((nrf_saadc_value_t *)buffer,
+                                     size / sizeof(nrf_saadc_value_t));
+    if (err != NRFX_SUCCESS) {
+        for (uint8_t i = 0; i < num_channels; i++) {
+            nrfx_saadc_channel_uninit(i);
+        }
+        nrfx_saadc_uninit();
+        MCUI_MUTEX_RELEASE(s_saadc_mutex);
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    err = nrfx_saadc_sample();
+    if (err != NRFX_SUCCESS) {
+        for (uint8_t i = 0; i < num_channels; i++) {
+            nrfx_saadc_channel_uninit(i);
+        }
+        nrfx_saadc_uninit();
+        MCUI_MUTEX_RELEASE(s_saadc_mutex);
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    /* Mutex is released in saadc_event_handler when conversion completes */
+    return MCUI_ADC_ERROR_NONE;
 }
 
 /**************************************************************************************************
  *                                          Static functions
  *************************************************************************************************/
+
+static void saadc_event_handler(nrfx_saadc_evt_t const *p_event)
+{
+    if (p_event->type == NRFX_SAADC_EVT_DONE) {
+        for (uint8_t i = 0; i < s_buffer_num_channels; i++) {
+            nrfx_saadc_channel_uninit(i);
+        }
+        nrfx_saadc_uninit();
+        MCUI_MUTEX_RELEASE(s_saadc_mutex);
+
+        if (s_buffer_callback) {
+            s_buffer_callback(s_buffer_ptr, s_buffer_size);
+        }
+    }
+}
 
 static bool check_cfg(mcui_adc_cfg_t *cfg)
 {
