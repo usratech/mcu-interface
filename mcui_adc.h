@@ -83,6 +83,13 @@ enum __mcui_adc_gain_factor {
     MCUI_ADC_GAIN_COUNT,
 };
 
+enum __mcui_adc_reference {
+    MCUI_ADC_REF_INTERNAL = 0,
+    MCUI_ADC_REF_EXTERNAL,
+    /* at the end */
+    MCUI_ADC_REF_COUNT,
+};
+
 typedef void (*mcui_adc_callback_t)(void *buffer, size_t size);
 
 typedef struct {
@@ -93,7 +100,9 @@ typedef struct {
     uint8_t channels_in_use;
     uint8_t mode;
     uint8_t resolution;
+    uint8_t reference;
     uint16_t oversample;
+    uint32_t sample_rate_hz;
     float vref;
     float gain;
 } mcui_adc_cfg_t;

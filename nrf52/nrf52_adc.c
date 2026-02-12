@@ -28,6 +28,7 @@
 #include "nrfx_saadc.h"
 #include "nrf_drv_ppi.h"
 #include "nrf_drv_timer.h"
+#include "nrf_saadc.h"
 
 /**************************************************************************************************
  *                                          Definitions
@@ -44,6 +45,9 @@
 
 static bool check_cfg(mcui_adc_cfg_t *cfg);
 static void saadc_event_handler(nrfx_saadc_evt_t const *p_event);
+static void timer_event_handler(nrf_timer_event_t event_type, void *p_context);
+static int setup_ppi_timer(uint32_t sample_rate_hz);
+static void cleanup_ppi_timer(void);
 
 /**************************************************************************************************
  *                                          Variables 
@@ -70,12 +74,21 @@ static const int bits_to_internal_bits[MCUI_ADC_RESOLUTION_COUNT] = {
     [MCUI_ADC_RESOLUTION_14BIT] = NRF_SAADC_RESOLUTION_14BIT,
 };
 
+static const uint8_t ref_to_internal_ref[MCUI_ADC_REF_COUNT] = {
+    [MCUI_ADC_REF_INTERNAL] = NRF_SAADC_REFERENCE_INTERNAL,
+    [MCUI_ADC_REF_EXTERNAL] = NRF_SAADC_REFERENCE_VDD4,
+};
+
 static mcui_mutex_t s_saadc_mutex;
 
 static mcui_adc_callback_t s_buffer_callback;
 static void *s_buffer_ptr;
 static size_t s_buffer_size;
 static uint8_t s_buffer_num_channels;
+
+static const nrf_drv_timer_t s_timer = NRF_DRV_TIMER_INSTANCE(1);
+static nrf_ppi_channel_t s_ppi_channel;
+static bool s_timer_initialized;
 
 /**************************************************************************************************
  *                                          Functions
@@ -106,7 +119,7 @@ int mcui_adc_sample_single(uint8_t adc, mcui_adc_cfg_t *cfg, int *out_value)
     nrf_saadc_channel_config_t ch_cfg = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(
         ch_to_internal_ch[pos_ch]);
     ch_cfg.gain = gain_to_internal_gain[(uint8_t)cfg->gain];
-    ch_cfg.reference = NRF_SAADC_REFERENCE_INTERNAL;
+    ch_cfg.reference = ref_to_internal_ref[cfg->reference];
     ch_cfg.acq_time = NRF_SAADC_ACQTIME_10US;
 
     if (cfg->mode == MCUI_ADC_MODE_DIFFERENTIAL) {
@@ -200,7 +213,7 @@ int mcui_adc_sample_buffer(uint8_t adc, mcui_adc_cfg_t *cfg, void *buffer, size_
         nrf_saadc_channel_config_t ch_cfg = NRFX_SAADC_DEFAULT_CHANNEL_CONFIG_SE(
             ch_to_internal_ch[ch]);
         ch_cfg.gain = gain_to_internal_gain[(uint8_t)cfg->gain];
-        ch_cfg.reference = NRF_SAADC_REFERENCE_INTERNAL;
+        ch_cfg.reference = ref_to_internal_ref[cfg->reference];
         ch_cfg.acq_time = NRF_SAADC_ACQTIME_10US;
 
         err = nrfx_saadc_channel_init(i, &ch_cfg);
@@ -229,14 +242,15 @@ int mcui_adc_sample_buffer(uint8_t adc, mcui_adc_cfg_t *cfg, void *buffer, size_
         return MCUI_ADC_ERROR_SDK;
     }
 
-    err = nrfx_saadc_sample();
-    if (err != NRFX_SUCCESS) {
+    /* Set up PPI + timer for continuous sampling at specified rate */
+    int ret = setup_ppi_timer(cfg->sample_rate_hz);
+    if (ret != MCUI_ADC_ERROR_NONE) {
         for (uint8_t i = 0; i < num_channels; i++) {
             nrfx_saadc_channel_uninit(i);
         }
         nrfx_saadc_uninit();
         MCUI_MUTEX_RELEASE(s_saadc_mutex);
-        return MCUI_ADC_ERROR_SDK;
+        return ret;
     }
 
     /* Mutex is released in saadc_event_handler when conversion completes */
@@ -247,9 +261,96 @@ int mcui_adc_sample_buffer(uint8_t adc, mcui_adc_cfg_t *cfg, void *buffer, size_
  *                                          Static functions
  *************************************************************************************************/
 
+static void timer_event_handler(nrf_timer_event_t event_type, void *p_context)
+{
+    (void)event_type;
+    (void)p_context;
+    /* Empty handler - PPI handles triggering SAADC directly */
+}
+
+static int setup_ppi_timer(uint32_t sample_rate_hz)
+{
+    ret_code_t err;
+
+    /* Initialize timer */
+    nrf_drv_timer_config_t timer_cfg = NRF_DRV_TIMER_DEFAULT_CONFIG;
+    timer_cfg.frequency = NRF_TIMER_FREQ_1MHz;
+
+    err = nrf_drv_timer_init(&s_timer, &timer_cfg, timer_event_handler);
+    if (err != NRF_SUCCESS && err != NRF_ERROR_INVALID_STATE) {
+        return MCUI_ADC_ERROR_SDK;
+    }
+    s_timer_initialized = true;
+
+    /* Calculate timer ticks for desired sample rate */
+    uint32_t ticks = 1000000 / sample_rate_hz;
+    nrf_drv_timer_extended_compare(&s_timer,
+                                    NRF_TIMER_CC_CHANNEL0,
+                                    ticks,
+                                    NRF_TIMER_SHORT_COMPARE0_CLEAR_MASK,
+                                    false);
+
+    /* Initialize PPI */
+    err = nrf_drv_ppi_init();
+    if (err != NRF_SUCCESS && err != NRF_ERROR_MODULE_ALREADY_INITIALIZED) {
+        nrf_drv_timer_uninit(&s_timer);
+        s_timer_initialized = false;
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    /* Allocate PPI channel */
+    err = nrf_drv_ppi_channel_alloc(&s_ppi_channel);
+    if (err != NRF_SUCCESS) {
+        nrf_drv_timer_uninit(&s_timer);
+        s_timer_initialized = false;
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    /* Connect timer COMPARE event to SAADC SAMPLE task */
+    uint32_t timer_compare_event = nrf_drv_timer_compare_event_address_get(&s_timer,
+                                                                            NRF_TIMER_CC_CHANNEL0);
+    uint32_t saadc_sample_task = nrf_saadc_task_address_get(NRF_SAADC, NRF_SAADC_TASK_SAMPLE);
+
+    err = nrf_drv_ppi_channel_assign(s_ppi_channel, timer_compare_event, saadc_sample_task);
+    if (err != NRF_SUCCESS) {
+        nrf_drv_ppi_channel_free(s_ppi_channel);
+        nrf_drv_timer_uninit(&s_timer);
+        s_timer_initialized = false;
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    /* Enable PPI channel */
+    err = nrf_drv_ppi_channel_enable(s_ppi_channel);
+    if (err != NRF_SUCCESS) {
+        nrf_drv_ppi_channel_free(s_ppi_channel);
+        nrf_drv_timer_uninit(&s_timer);
+        s_timer_initialized = false;
+        return MCUI_ADC_ERROR_SDK;
+    }
+
+    /* Start timer */
+    nrf_drv_timer_enable(&s_timer);
+
+    return MCUI_ADC_ERROR_NONE;
+}
+
+static void cleanup_ppi_timer(void)
+{
+    nrf_drv_ppi_channel_disable(s_ppi_channel);
+    nrf_drv_ppi_channel_free(s_ppi_channel);
+
+    if (s_timer_initialized) {
+        nrf_drv_timer_disable(&s_timer);
+        nrf_drv_timer_uninit(&s_timer);
+        s_timer_initialized = false;
+    }
+}
+
 static void saadc_event_handler(nrfx_saadc_evt_t const *p_event)
 {
     if (p_event->type == NRFX_SAADC_EVT_DONE) {
+        cleanup_ppi_timer();
+
         for (uint8_t i = 0; i < s_buffer_num_channels; i++) {
             nrfx_saadc_channel_uninit(i);
         }
